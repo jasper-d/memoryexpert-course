@@ -1,18 +1,15 @@
-﻿using System.Collections.Generic;
-
-namespace GenerationalApp
+﻿namespace GenerationalApp
 {
-    class Trie<TKey, TKeyElement, TValue>
-        where TKey : IEnumerable<TKeyElement>
+    class Trie<TValue>
     {
-        private readonly TrieNode<TKey, TKeyElement, TValue> _root;
+        private readonly TrieNode<TValue> _root;
 
         public Trie()
         {
-            _root = new TrieNode<TKey, TKeyElement, TValue>(default);
+            _root = new TrieNode<TValue>(default);
         }
 
-        public void Add(TKey key, TValue value)
+        public void Add(string key, TValue value)
         {
             var node = _root;
             foreach (var element in key)
@@ -23,7 +20,7 @@ namespace GenerationalApp
             node.Value = value;
         }
 
-        public bool TryGetItem(TKey key, out TValue value)
+        public bool TryGetItem(string key, out TValue value)
         {
             if (TryGetNode(key, out var node))
             {
@@ -38,7 +35,7 @@ namespace GenerationalApp
             return false;
         }
 
-        private bool TryGetNode(TKey key, out TrieNode<TKey, TKeyElement, TValue>? node)
+        private bool TryGetNode(string key, out TrieNode<TValue>? node)
         {
             var currentNode = _root;
             foreach (var keyElement in key)
@@ -54,17 +51,13 @@ namespace GenerationalApp
             return true;
         }
 
-        public IEnumerable<KeyValuePair<TKey, TValue>> EnumerateNodes()
-        {
-            return _root.EnumerateChildren();
-        }
 
-        private TrieNode<TKey, TKeyElement, TValue> AddElement(TrieNode<TKey, TKeyElement, TValue> node,
-            TKeyElement keyElement)
+        private TrieNode<TValue> AddElement(TrieNode<TValue> node,
+            char keyElement)
         {
             if (!node.Children.TryGetValue(keyElement, out var childNode))
             {
-                childNode = new TrieNode<TKey, TKeyElement, TValue>(keyElement)
+                childNode = new TrieNode<TValue>(keyElement)
                 {
                     Parent = node
                 };
@@ -72,6 +65,11 @@ namespace GenerationalApp
             }
 
             return childNode;
+        }
+
+        public int CountNodes()
+        {
+            return _root.CountChildren();
         }
     }
 }

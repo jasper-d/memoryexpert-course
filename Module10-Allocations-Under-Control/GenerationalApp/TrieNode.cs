@@ -1,40 +1,41 @@
 ﻿using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 
 namespace GenerationalApp
 {
-    internal sealed class TrieNode<TKey, TKeyElement, TValue>
-        where TKey : IEnumerable<TKeyElement>
+    internal sealed class TrieNode<TValue>
     {
-        public TrieNode([NotNull] TKeyElement keyElement)
+        public TrieNode(char keyElement)
         {
             KeyElement = keyElement;
-            Children = new Dictionary<TKeyElement, TrieNode<TKey, TKeyElement, TValue>>();
+            Children = new Dictionary<char, TrieNode<TValue>>(31);
         }
 
 
-        public TKeyElement KeyElement { get; }
+        public char KeyElement { get; }
 
-        public TKey? Key { get; set; }
+        public string? Key { get; set; }
 
         public TValue Value { get; set; }
 
-        public IDictionary<TKeyElement, TrieNode<TKey, TKeyElement, TValue>> Children { get; }
+        public Dictionary<char, TrieNode<TValue>> Children { get; }
 
-        public TrieNode<TKey, TKeyElement, TValue> Parent { get; set; }
+        public TrieNode<TValue> Parent { get; set; }
 
-        public IEnumerable<KeyValuePair<TKey, TValue>> EnumerateChildren()
+
+        public int CountChildren()
         {
-            foreach (var child in Children)
+            int count = 0;
+            foreach (var child in Children.Values)
             {
-                if (child.Value.Key is not null)
+                if (child.Key is not null)
                 {
-                    yield return new(child.Value.Key, child.Value.Value);
+                    count++;
                 }
 
-                foreach (var item in child.Value.EnumerateChildren())
-                    yield return item;
+                count += child.CountChildren();
             }
+
+            return count;
         }
     }
 }
