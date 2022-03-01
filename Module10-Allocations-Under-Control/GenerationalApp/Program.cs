@@ -56,8 +56,8 @@ namespace GenerationalApp
                                 index++;
                                 mainTask.Value = index;
                                 pageTask.Value++;
-                                AnsiConsole.MarkupLine(
-                                    $"After parsing '{pageResult.Title}' trie size is {stringTrie.EnumerateNodes().Count()}");
+                                //System.InvalidOperationException: Could not find color or style 'Cambridge'.
+                                AnsiConsole.WriteLine($"After parsing '{pageResult.Title}' trie size is {stringTrie.CountNodes()}");
                             }
                         }
                         if (page.Next is null)
