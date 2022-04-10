@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Buffers;
-using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.IO.Pipelines;
 using System.Net.Http;
@@ -27,6 +27,7 @@ namespace GenerationalApp
                 .StartAsync(async ctx =>
                 {
                     var mainTask = ctx.AddTask("[green]Processing books [/]");
+                    int pageIndex = 1;
                     while (true)
                     {
                         HttpResponseMessage response = await client.GetAsync(url);
@@ -37,8 +38,8 @@ namespace GenerationalApp
                             break;
                         mainTask.MaxValue = page.Count;
 
-                        int pageIndex = 1;
-                        ProgressTask pageTask = ctx.AddTask($"[darkgreen]Processing page {pageIndex}[/]");
+                        
+                        ProgressTask pageTask = ctx.AddTask($"[darkgreen]Processing page {pageIndex:000}[/]");
 
                         foreach (var pageResult in page.Results)
                         {
@@ -48,51 +49,27 @@ namespace GenerationalApp
                             {
                                 HttpRequestMessage hrm = new HttpRequestMessage(HttpMethod.Get, new Uri(bookUrl, UriKind.Absolute));
                                 HttpResponseMessage resp = await client.SendAsync(hrm);
-                                Task<Stream> respStreamTask = resp.Content.ReadAsStreamAsync();
-                                    Stream respStream = await respStreamTask;
+                                Stream respStream = await resp.Content.ReadAsStreamAsync();
                                 PipeReader reader = PipeReader.Create(respStream);
-                                
+
                                 await ReadBookAsync(reader, stringTrie);
 
-
                                 index++;
-                                mainTask.Value = index;
-                                pageTask.Value++;
+
                                 //System.InvalidOperationException: Could not find color or style 'Cambridge'.
                                 AnsiConsole.WriteLine($"After parsing '{pageResult.Title}' trie size is {stringTrie.CountNodes()}");
 
                             }
-                            pageIndex++;
+                            pageTask.Value++;
                         }
+                        pageIndex++;
+                        mainTask.Value++;
                         if (page.Next is null)
                             break;
                         url = page.Next;
                     }
                 });
            }
-
-        
-        static (SequencePosition, long) ReadBookCore(ReadOnlySequence<byte> buffer, Trie<int> trie)
-        {
-            SequenceReader<byte> sReader = new SequenceReader<byte>(buffer);
-            while(sReader.TryReadToAny(out ReadOnlySpan<byte> word, Delimiters, true))
-            {
-                if (word.IsEmpty)
-                {
-                    continue;
-                }
-
-                if (TryNormalize(word, out string wordStr))
-                {
-                    var newValue = 0;
-                    if (trie.TryGetItem(wordStr, out var counter))
-                        newValue = ++counter;
-                    trie.Add(wordStr, newValue);
-                }
-            }
-
-            return (sReader.Position, sReader.Consumed);
-        }
 
         static async ValueTask ReadBookAsync(PipeReader pReader, Trie<int> trie)
         {
@@ -101,38 +78,80 @@ namespace GenerationalApp
             {
                 result = await pReader.ReadAsync(CancellationToken.None);
 
-                if (result.IsCanceled) throw new InvalidOperationException("Pipe cancelled 😪");
+                if (result.IsCanceled)
+                {
+                    throw new InvalidOperationException("Pipe cancelled 😪");
+                }
 
                 ReadOnlySequence<byte> buffer = result.Buffer;
-                (SequencePosition sp, long consumed) = ReadBookCore(buffer, trie);
+                SequencePosition sp = ReadBookCore(buffer, trie);
 
-                if (!sp.Equals(result.Buffer.GetPosition(consumed)))
-                {
-                    throw new InvalidOperationException("unexpected consumption");
-                }
-                
                 pReader.AdvanceTo(sp, buffer.End);
 
             } while (!result.IsCompleted);
         }
 
-        private static bool TryNormalize(ReadOnlySpan<byte> word, out string result)
+        [SkipLocalsInit]
+        static SequencePosition ReadBookCore(ReadOnlySequence<byte> buffer, Trie<int> trie)
         {
-            word = word.Trim(JunkChars);
+            Span<char> wordBuffer = stackalloc char[256];
+            SequenceReader<byte> sReader = new SequenceReader<byte>(buffer);
 
-            // This hurts but implementing UTF-8 strings is just out of scope
-            result = Encoding.UTF8.GetString(word).ToLowerInvariant();
-
-
-            for(int idx = 0; idx < result.Length; idx++)
+            while(sReader.TryReadToAny(out ReadOnlySpan<byte> word, Delimiters, true))
             {
-                if (!char.IsLetter(result[idx]))
+                if (word.IsEmpty)
                 {
-                    return false;
+                    continue;
+                }
+
+                if (TryNormalize(word, wordBuffer, out string? wordStr))
+                {
+                    if (trie.TryGetItem(wordStr, out int counter))
+                    {
+                        ++counter;
+                    }
+                    trie.Add(wordStr, counter);
                 }
             }
 
+            return sReader.Position;
+        }
+
+        private static bool TryNormalize(ReadOnlySpan<byte> word, Span<char> buffer, [NotNullWhen(true)] out string? result)
+        {
+            word = word.Trim(JunkChars);
+            if (word.IsEmpty)
+            {
+                goto FAILURE;
+            }
+
+            Span<char> remainingWordBuffer = buffer;
+            ReadOnlySpan<byte> remaining = word;
+            while (!remaining.IsEmpty)
+            {
+                OperationStatus status = Rune.DecodeFromUtf8(remaining, out Rune rune, out int consumed);
+                if (status != OperationStatus.Done || !Rune.IsLetter(rune))
+                {
+                    goto FAILURE;
+                }
+                remaining = remaining.Slice(consumed);
+                rune = Rune.ToLowerInvariant(rune);
+                if (rune.TryEncodeToUtf16(remainingWordBuffer, out int charsWritten))
+                {
+                    remainingWordBuffer = remainingWordBuffer.Slice(charsWritten);
+                }
+                else
+                {
+                    goto FAILURE;
+                }
+            }
+
+            result = new string(buffer.Slice(0, buffer.Length - remainingWordBuffer.Length));
             return true;
+
+        FAILURE:
+            result = null;
+            return false;
         }
     }
 }
